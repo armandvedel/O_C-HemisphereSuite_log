@@ -18,8 +18,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+
+//modded for trapezoid envelope
+//needs a setting to ignore the clock? so maybe if rt time is >0 it will disregard clock
+
 #define HEM_ADEG_MAX_VALUE 255
-#define HEM_ADEG_MAX_TICKS 33333
+#define HEM_ADEG_MAX_TICKS 33333 //added2
 
 class ADEG : public HemisphereApplet {
 public:
@@ -33,25 +37,37 @@ public:
         phase = 0;
         attack = 50;
         decay = 50;
+        hold = 25000;
+        retrig = 0; //cycle is off if retrig is 0
     }
 
     void Controller() {
-        if (Clock(0)) {
+        if (Clock(0) && retrig <= 0) {
             // Trigger the envelope
             phase = 1; // Return to attack phase
             effective_attack = attack;
             effective_decay = decay;
+            
         } else if (Clock(1)) {
             // Trigger the envelope in reverse
             phase = 1;
             effective_attack = decay;
             effective_decay = attack;
+            
+        } else if (phase == 0 && retrig > 0){ //wait to retrig if no clock signal  phase == 0 && 
+                    retrig --;
+                    if (retrig <= 0) {
+                      phase = 1;
+                      retrig = rt_time * 1000; //reset retrig count
+                      effective_attack = attack;
+                      effective_decay = decay;
+                    }
         }
 
         if (phase > 0) {
             simfloat target;
             if (phase == 1) target = int2simfloat(HEMISPHERE_MAX_CV); // Rise to max for attack
-            if (phase == 2) target = 0; // Fall to zero for decay
+            if (phase == 3) target = 0; // Fall to zero for decay
 
             //if (signal != target) { // Logarhythm fix 8/2020
                 int segment = phase == 1
@@ -75,13 +91,22 @@ public:
                 }
                 signal += delta;
 
-                if (simfloat2int(signal) >= HEMISPHERE_MAX_CV && phase == 1) phase = 2;
+                if (simfloat2int(signal) >= HEMISPHERE_MAX_CV && phase == 1) phase = 2; //go on to hold phase
 
+                if (phase == 2) {
+                  hold --;              
+                if (hold <= 0) phase = 3; 
+                }
+                
                 // Check for EOC
-                if (simfloat2int(signal) <= 0 && phase == 2) {
+                if (simfloat2int(signal) <= 0 && phase == 3) {
                     ClockOut(1);
                     phase = 0;
+                    hold = on_time * 500; //reset hold count
+                    
                 }
+                
+                
             //}
             Out(0, simfloat2int(signal));
         }
@@ -90,10 +115,12 @@ public:
     void View() {
         gfxHeader(applet_name());
         DrawIndicator();
+        DrawSelector();
     }
 
     void OnButtonPress() {
-        cursor = 1 - cursor;
+        if (++cursor > 3) cursor = 0;
+        ResetCursor();
     }
 
     void OnEncoderMove(int direction) {
@@ -101,10 +128,24 @@ public:
             attack = constrain(attack += direction, 0, HEM_ADEG_MAX_VALUE);
             last_ms_value = Proportion(attack, HEM_ADEG_MAX_VALUE, HEM_ADEG_MAX_TICKS) / 17;
         }
-        else {
+        else if (cursor == 1){
             decay = constrain(decay += direction, 0, HEM_ADEG_MAX_VALUE);
             last_ms_value = Proportion(decay, HEM_ADEG_MAX_VALUE, HEM_ADEG_MAX_TICKS) / 17;
         }
+        else if (cursor == 2){
+            //hold 2.5 secs
+            on_time = constrain(on_time += direction, 0, 99); //2.5secs will have to be 50,000 ticks
+            hold = on_time * 500;
+            last_ms_value = on_time * 25;
+        }
+        else if (cursor == 3){
+            //off time 5 secs
+            rt_time = constrain(rt_time += direction, 0, 99); //5 secs will have to be 100,000 ticks
+            retrig = rt_time * 1000;
+            last_ms_value = rt_time * 50;
+
+        }
+        
         last_change_ticks = OC::CORE::ticks;
     }
         
@@ -142,7 +183,11 @@ private:
     // Settings
     int attack; // Time to reach signal level if signal < 5V
     int decay; // Time to reach signal level if signal > 0V
-
+    int hold; //counter for hold of trapezoid envelope
+    int retrig; //counter for off time of trapezoid 
+    int on_time = 50; //on_time is the controller value of hold counter;
+    int rt_time = 0; //time before retriggering, 0 = no retrig
+    
     void DrawIndicator() {
         int a_x = Proportion(attack, HEM_ADEG_MAX_VALUE, 31);
         int d_x = a_x + Proportion(decay, HEM_ADEG_MAX_VALUE, 31);
@@ -164,6 +209,22 @@ private:
             gfxPrint("ms");
         }
     }
+    
+    void DrawSelector() // this is for the hold time and the off time
+    {
+        for (int param = 0; param < 2; param++)
+        { 
+            if(param == 0 || param == 1) gfxPrint(31 * param, 22, param ? "Rt: " : "On: ");
+            //if(param == 2 || param == 3) gfxPrint(31 * (param - 2), 30, (param - 2) ? "f2: " : "Dm: ");
+
+            gfxPrint(16, 22, on_time);
+            gfxPrint(48, 22, rt_time);
+            if (param == cursor - 2){
+              gfxCursor(31 * (param % 2), (15*(param/2))+30, 30);
+            }
+        }
+    }
+    
 };
 
 

@@ -18,6 +18,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include "u_law.h"
+
 #define HEM_LOFI_PCM_BUFFER_SIZE 2048
 #define HEM_LOFI_PCM_SPEED 8
 #define LOFI_PCM2CV(S) ((int32_t)S << 8) - 32512 //32767 is 128 << 8 32512 is 127 << 8 // 0-126 is neg, 127 is 0, 128-254 is pos
@@ -48,11 +50,16 @@ public:
             }
             int dt = delaytime_pct * length / 100; //convert delaytime to length in samples 
             int writehead = (head+length + dt) % length; //have to add the extra length to keep modulo positive in case delaytime is neg
-            int32_t tapeout = LOFI_PCM2CV(pcm[head]); // get the char out from the array and convert back to cv (de-offset)
-            int32_t feedbackmix = constrain(((tapeout * feedback / 100  + In(0)) + 32640), locliplimit, cliplimit) >> 8; //add to the feedback, offset and bitshift down; 32640 to fix rounding error
+            //int32_t tapeout = LOFI_PCM2CV(pcm[head]); // get the char out from the array and convert back to cv (de-offset)
+            int16_t tapeout = ulaw_decode_table[(uint8_t)pcm[head]]; // get the char out from the array and convert back to cv (de-offset)
+
+            //int32_t feedbackmix = constrain(((tapeout * feedback / 100  + In(0)) + 32640), locliplimit, cliplimit) >> 8; //add to the feedback, offset and bitshift down; 32640 to fix rounding error
+            int16_t feedbackmix = ulaw_encode(constrain(((tapeout * feedback / 100  + In(0))), locliplimit, cliplimit)); //use the ulaw_encode function instead
+
             pcm[writehead] = (char)feedbackmix;
             
-            int32_t s = LOFI_PCM2CV(pcm[head]);
+            //int32_t s = LOFI_PCM2CV(pcm[head]);
+            int16_t s = ulaw_decode_table[(uint8_t)pcm[head]];
             int SOS = In(1); // Sound-on-sound
             int live = Proportion(SOS, HEMISPHERE_MAX_CV, In(0)); //max_cv is 7680 scales vol. of live 
             int loop = play ? Proportion(HEMISPHERE_MAX_CV - SOS, HEMISPHERE_MAX_CV, s) : 0;
@@ -112,7 +119,35 @@ private:
     int length = HEM_LOFI_PCM_BUFFER_SIZE;
     int32_t cliplimit = 65024;
     int32_t locliplimit = 0;
-
+/*    const int16_t ulaw_decode_table[256] = {
+       4,    12,    20,    28,    36,    44,    52,    60,    68,    76,
+      84,    92,   100,   108,   116,   124,   136,   152,   168,   184,
+     200,   216,   232,   248,   264,   280,   296,   312,   328,   344,
+     360,   376,   400,   432,   464,   496,   528,   560,   592,   624,
+     656,   688,   720,   752,   784,   816,   848,   880,   928,   992,
+    1056,  1120,  1184,  1248,  1312,  1376,  1440,  1504,  1568,  1632,
+    1696,  1760,  1824,  1888,  1984,  2112,  2240,  2368,  2496,  2624,
+    2752,  2880,  3008,  3136,  3264,  3392,  3520,  3648,  3776,  3904,
+    4096,  4352,  4608,  4864,  5120,  5376,  5632,  5888,  6144,  6400,
+    6656,  6912,  7168,  7424,  7680,  7936,  8320,  8832,  9344,  9856,
+   10368, 10880, 11392, 11904, 12416, 12928, 13440, 13952, 14464, 14976,
+   15488, 16000, 16768, 17792, 18816, 19840, 20864, 21888, 22912, 23936,
+   24960, 25984, 27008, 28032, 29056, 30080, 31104, 32128,    -4,   -12,
+     -20,   -28,   -36,   -44,   -52,   -60,   -68,   -76,   -84,   -92,
+    -100,  -108,  -116,  -124,  -136,  -152,  -168,  -184,  -200,  -216,
+    -232,  -248,  -264,  -280,  -296,  -312,  -328,  -344,  -360,  -376,
+    -400,  -432,  -464,  -496,  -528,  -560,  -592,  -624,  -656,  -688,
+    -720,  -752,  -784,  -816,  -848,  -880,  -928,  -992, -1056, -1120,
+   -1184, -1248, -1312, -1376, -1440, -1504, -1568, -1632, -1696, -1760,
+   -1824, -1888, -1984, -2112, -2240, -2368, -2496, -2624, -2752, -2880,
+   -3008, -3136, -3264, -3392, -3520, -3648, -3776, -3904, -4096, -4352,
+   -4608, -4864, -5120, -5376, -5632, -5888, -6144, -6400, -6656, -6912,
+   -7168, -7424, -7680, -7936, -8320, -8832, -9344, -9856,-10368,-10880,
+  -11392,-11904,-12416,-12928,-13440,-13952,-14464,-14976,-15488,-16000,
+  -16768,-17792,-18816,-19840,-20864,-21888,-22912,-23936,-24960,-25984,
+  -27008,-28032,-29056,-30080,-31104,-32128
+  };
+*/  
     int selected; //for gui
      
     
@@ -124,7 +159,7 @@ private:
         if (head < 0) head += length;
         for (int i = 0; i < 32; i++)
         {
-            int v = (int)pcm[pos] - 127;
+            int v = (int)pcm[pos] - 0; //maybe change -127 to -0 because of ulaw
             if (v < 0) v = 0;
             if (v > high) high = v;
             pos += inc;
@@ -153,7 +188,28 @@ private:
         }
     }
     
-    
+    uint8_t ulaw_encode(int16_t audio)
+    {
+      uint32_t mag, neg;
+      // http://en.wikipedia.org/wiki/G.711
+      if (audio >= 0) {
+        mag = audio;
+        neg = 0;
+      } else {
+        mag = audio * -1;
+        neg = 0x80;
+       }
+      mag += 128;
+      if (mag > 0x7FFF) mag = 0x7FFF;
+      if (mag >= 0x4000) return neg | 0x70 | ((mag >> 10) & 0x0F);  // 01wx yz00 0000 0000
+      if (mag >= 0x2000) return neg | 0x60 | ((mag >> 9) & 0x0F);   // 001w xyz0 0000 0000
+      if (mag >= 0x1000) return neg | 0x50 | ((mag >> 8) & 0x0F);   // 0001 wxyz 0000 0000
+      if (mag >= 0x0800) return neg | 0x40 | ((mag >> 7) & 0x0F);   // 0000 1wxy z000 0000
+      if (mag >= 0x0400) return neg | 0x30 | ((mag >> 6) & 0x0F);   // 0000 01wx yz00 0000
+      if (mag >= 0x0200) return neg | 0x20 | ((mag >> 5) & 0x0F);   // 0000 001w xyz0 0000
+      if (mag >= 0x0100) return neg | 0x10 | ((mag >> 4) & 0x0F);   // 0000 0001 wxyz 0000
+      else               return neg | 0x00 | ((mag >> 3) & 0x0F);   // 0000 0000 1wxy z000
+   }
     
  /*   void DrawStop(int x, int y) {
         if (record || play || gated_record) gfxFrame(x, y, 11, 11);

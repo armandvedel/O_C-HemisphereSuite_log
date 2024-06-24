@@ -63,8 +63,9 @@ public:
             for (int i = 0; i < 8; i++){ //for each of the 8 multitap heads; 
                 int dt = multitap_heads[i] / HEM_LOFI_VERB_SPEED; //convert delaytime to length in samples 
                 int writehead = (head+length + dt) % length; //have to add the extra length to keep modulo positive in case delaytime is neg   
-                int32_t tapeout = LOFI_PCM2CV(pcm[head]); // get the char out from the array and convert back to cv (de-offset);
-                
+                //int32_t tapeout = LOFI_PCM2CV(pcm[head]); // get the char out from the array and convert back to cv (de-offset);
+                int16_t tapeout = ulaw_decode_table[(uint8_t)pcm[head]]; // get the char out from the array and convert back to cv (de-offset)
+
                 if (dampen_on != 0) { //lowpass filter at cutoff freq                                                           
                     int w = 2*8300; //2 x samplerate
                     cutoff *= 2 * 22 / 7; // cutoff * 2 * pi;
@@ -72,18 +73,22 @@ public:
                     int b1 =  (w - cutoff) * norm;
                     int a0 = cutoff * norm;
                     int a1 = a0;
-                    int32_t last_out = LOFI_PCM2CV(pcm[writehead - 1]);
+                    //int32_t last_out = LOFI_PCM2CV(pcm[writehead - 1]);
+                    int16_t last_out = ulaw_decode_table[(uint8_t)pcm[writehead - 1]];
                     int32_t damp_out = tapeout * a0 + dampen[i] * a1 + last_out * b1; 
                     dampen[i] = tapeout; //dampen [i] is last input
                     tapeout = damp_out;
                     };    
                     
-                int32_t feedbackmix = constrain(((tapeout * feedback / 100  + In(0)) + 32640), locliplimit, cliplimit) >> 8; //add to the feedback, offset and bitshift down
+                //int32_t feedbackmix = constrain(((tapeout * feedback / 100  + In(0)) + 32640), locliplimit, cliplimit) >> 8; //add to the feedback, offset and bitshift down
+                int16_t feedbackmix = ulaw_encode(constrain(((tapeout * feedback / 100  + In(0))), locliplimit, cliplimit)); //use the ulaw_encode function instead
+
                 pcm[writehead] = (char)feedbackmix;
             }
 
             //char ap = pcm[head]; //8 bit char of result of multitap 0 to 254            
-            int32_t ap_int = LOFI_PCM2CV(pcm[head]); //convert to signed full scale
+            //int32_t ap_int = LOFI_PCM2CV(pcm[head]); //convert to signed full scale
+            int16_t ap_int = ulaw_decode_table[(uint8_t)pcm[head]];
             int32_t mix = (ap_int ) + In(0); // mix 1/8 signal of comb with input;
             
             if (allpass==1){ 
@@ -91,8 +96,13 @@ public:
                     int32_t dry = mix;
                     int dt = allpass_delay_times[i] / HEM_LOFI_VERB_SPEED; //delay time
                     int writehead = (ap_head + ap_length + dt) % ap_length; //add delay time to get write location
-                    int32_t tapeout = LOFI_PCM2CV(allpass_pcm[i][ap_head]);
-                    int32_t feedbackmix = constrain(((tapeout * feedback2 / 100  + dry) + 32640),locliplimit, cliplimit) >> 8; //add to the feedback (50%), clip at 127 //buffer[bufidx] = input + (bufout*feedback);
+                    //int32_t tapeout = LOFI_PCM2CV(allpass_pcm[i][ap_head]);
+                    int16_t tapeout = ulaw_decode_table[(uint8_t)pcm[ap_head]]; 
+
+                
+                    //int32_t feedbackmix = constrain(((tapeout * feedback2 / 100  + dry) + 32640),locliplimit, cliplimit) >> 8; //add to the feedback (50%), clip at 127 //buffer[bufidx] = input + (bufout*feedback);
+                    int16_t feedbackmix = ulaw_encode(constrain(((tapeout * feedback2 / 100  + dry)), locliplimit, cliplimit)); //use the ulaw_encode function instead
+
                     allpass_pcm[i][writehead] = (char)feedbackmix; 
                     mix =  (tapeout - ((tapeout * feedback2/100) + dry) * feedback2/100 ); //freeverb 3: _fv3_float_t output = bufout - buffer[bufidx] * feedback;
                        
@@ -199,7 +209,28 @@ private:
         }
     }
     
-
+    uint8_t ulaw_encode(int16_t audio)
+    {
+      uint32_t mag, neg;
+      // http://en.wikipedia.org/wiki/G.711
+      if (audio >= 0) {
+        mag = audio;
+        neg = 0;
+      } else {
+        mag = audio * -1;
+        neg = 0x80;
+       }
+      mag += 128;
+      if (mag > 0x7FFF) mag = 0x7FFF;
+      if (mag >= 0x4000) return neg | 0x70 | ((mag >> 10) & 0x0F);  // 01wx yz00 0000 0000
+      if (mag >= 0x2000) return neg | 0x60 | ((mag >> 9) & 0x0F);   // 001w xyz0 0000 0000
+      if (mag >= 0x1000) return neg | 0x50 | ((mag >> 8) & 0x0F);   // 0001 wxyz 0000 0000
+      if (mag >= 0x0800) return neg | 0x40 | ((mag >> 7) & 0x0F);   // 0000 1wxy z000 0000
+      if (mag >= 0x0400) return neg | 0x30 | ((mag >> 6) & 0x0F);   // 0000 01wx yz00 0000
+      if (mag >= 0x0200) return neg | 0x20 | ((mag >> 5) & 0x0F);   // 0000 001w xyz0 0000
+      if (mag >= 0x0100) return neg | 0x10 | ((mag >> 4) & 0x0F);   // 0000 0001 wxyz 0000
+      else               return neg | 0x00 | ((mag >> 3) & 0x0F);   // 0000 0000 1wxy z000
+   }
 };
 
 
