@@ -39,8 +39,8 @@ const uint8_t MIDI_midi_icon[8] = {0x3c, 0x42, 0x91, 0x45, 0x45, 0x91, 0x42, 0x3
 const uint8_t MIDI_note_icon[8] = {0xc0, 0xe0, 0xe0, 0xe0, 0x7f, 0x02, 0x14, 0x08};
 const uint8_t MIDI_clock_icon[8] = {0x9c, 0xa2, 0xc1, 0xcf, 0xc9, 0xa2, 0x9c, 0x00};
 
-const char* const midi_in_functions[17] = {
-    "--", "Note", "Gate", "Trig", "Veloc", "Mod", "Aft", "Bend",  "Expr", "Pan", "Hold", "Brth", "yAxis", "Qtr", "8th", "16th", "24ppq"
+const char* const midi_in_functions[18] = {
+    "--", "Note", "Duo", "Gate", "Trig", "Veloc", "Mod", "Aft", "Bend",  "Expr", "Pan", "Hold", "Brth", "yAxis", "Qtr", "8th", "16th", "24ppq"
 };
 const char* const midi_out_functions[12] = {
     "--", "Note", "Leg.", "Veloc", "Mod", "Aft", "Bend", "Expr", "Pan", "Hold", "Brth", "yAxis"
@@ -91,6 +91,7 @@ const char* const midi_out_functions[12] = {
 enum MIDI_IN_FUNCTION {
     MIDI_IN_OFF,
     MIDI_IN_NOTE,
+    MIDI_IN_DUO,
     MIDI_IN_GATE,
     MIDI_IN_TRIGGER,
     MIDI_IN_VELOCITY,
@@ -397,7 +398,7 @@ private:
     int log_view; // Current index for viewing
 
     // MIDI In
-    int note_in[4]; // Up to four notes at a time are kept track of with MIDI In
+    int note_in[4] = {-1, -1, -1, -1}; // Up to four notes at a time are kept track of with MIDI In 
     uint16_t indicator_in[4]; // A MIDI indicator will display next to MIDI In assignment
     uint8_t clock_count; // MIDI clock counter (24ppqn)
 
@@ -649,6 +650,14 @@ private:
             bool note_captured = 0; // A note or gate should only be captured by
             bool gate_captured = 0; // one assignment, to allow polyphony in the interface
 
+            // JC Duophony: check if any voice is already occupied
+            bool first_note = true; //JC Duophony track if this is the first note
+            for (int i = 0; i < 4; i++) {
+              if (note_in[i] != -1) {
+                first_note = false;
+                break;
+              }
+            }
             // A MIDI message has been received; go through each channel to see if it
             // needs to be routed to any of the CV outputs
             for (int ch = 0; ch < 4; ch++)
@@ -664,6 +673,31 @@ private:
                             int note = data1 + get_in_transpose(ch);
                             note = constrain(note, 0, 127);
                             if (in_in_range(ch, note)) {
+                                Out(ch, MIDIQuantizer::CV(note));
+                                UpdateLog(1, ch, 0, in_ch, note, data2);
+                                indicator = 1;
+                                note_captured = 1;
+                                note_in[ch] = data1;
+                            } else note_in[ch] = -1;
+                        }
+                        
+                        if (in_fn == MIDI_IN_DUO && !note_captured) {
+                            // Send quantized pitch CV. Isolate transposition to quantizer so that it notes off aren't
+                            // misinterpreted if transposition is changed during the note.
+                            int note = data1 + get_in_transpose(ch);
+                            note = constrain(note, 0, 127);
+                             if (first_note) { //JC Duophony / Unison mode: play note on all voices 
+                                for (int v = 0; v < 2; v++) {
+                                  if (in_in_range(v, note)) {
+                                    Out(v, MIDIQuantizer::CV(note));
+                                    UpdateLog(1, v, 0, in_ch, note, data2);
+                                    indicator = 1;
+                                    note_captured = 1;
+                                    note_in[0] = data1;
+                                  }
+                                }
+                            } //if not, do normal polyphony 
+                            else if (in_in_range(ch, note)) {
                                 Out(ch, MIDIQuantizer::CV(note));
                                 UpdateLog(1, ch, 0, in_ch, note, data2);
                                 indicator = 1;
