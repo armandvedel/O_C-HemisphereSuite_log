@@ -649,14 +649,6 @@ private:
             bool note_captured = 0; // A note or gate should only be captured by
             bool gate_captured = 0; // one assignment, to allow polyphony in the interface
 
-            // JC Duophony: check if any voice is already occupied
-            bool first_note = true; //JC Duophony track if this is the first note
-            for (int i = 0; i < 4; i++) {
-              if (note_in[i] != -1) {
-                first_note = false;
-                break;
-              }
-            }
             // A MIDI message has been received; go through each channel to see if it
             // needs to be routed to any of the CV outputs
             for (int ch = 0; ch < 4; ch++)
@@ -671,18 +663,7 @@ private:
                             // misinterpreted if transposition is changed during the note.
                             int note = data1 + get_in_transpose(ch);
                             note = constrain(note, 0, 127);
-                             if (first_note) { // Unison mode: play note on all voices
-                                for (int v = 0; v < 4; v++) {
-                                  if (in_in_range(v, note)) {
-                                    Out(v, MIDIQuantizer::CV(note));
-                                    UpdateLog(1, v, 0, in_ch, note, data2);
-                                    indicator = 1;
-                                    note_captured = 1;
-                                    note_in[v] = data1;
-                                  }
-                                }
-                            }
-                            else if (in_in_range(ch, note)) {
+                            if (in_in_range(ch, note)) {
                                 Out(ch, MIDIQuantizer::CV(note));
                                 UpdateLog(1, ch, 0, in_ch, note, data2);
                                 indicator = 1;
