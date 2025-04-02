@@ -37,8 +37,12 @@ public:
         phase = 0;
         attack = 50;
         decay = 50;
+<<<<<<< Updated upstream
         hold = 25000;
         retrig = 0; //cycle is off if retrig is 0
+=======
+        hold = 20000;
+>>>>>>> Stashed changes
     }
 
     void Controller() {
@@ -93,9 +97,16 @@ public:
 
                 if (simfloat2int(signal) >= HEMISPHERE_MAX_CV && phase == 1) phase = 2; //go on to hold phase
 
+<<<<<<< Updated upstream
                 if (phase == 2) {
                   hold --;              
                 if (hold <= 0) phase = 3; 
+=======
+                //initiate hold time
+                if (phase == 2) {
+                  hold --;
+                  if (hold <= 0)  phase = 3;
+>>>>>>> Stashed changes
                 }
                 
                 // Check for EOC
@@ -173,7 +184,7 @@ protected:
     
 private:
     simfloat signal; // Current signal level for each channel
-    int phase; // 0=Not running 1=Attack 2=Decay
+    int phase; // 0=Not running 1=Attack 2=Hold 3=Decay
     int cursor; // 0 = Attack, 1 = Decay
     int last_ms_value;
     int last_change_ticks;
@@ -183,11 +194,16 @@ private:
     // Settings
     int attack; // Time to reach signal level if signal < 5V
     int decay; // Time to reach signal level if signal > 0V
+<<<<<<< Updated upstream
     int hold; //counter for hold of trapezoid envelope
     int retrig; //counter for off time of trapezoid 
     int on_time = 50; //on_time is the controller value of hold counter;
     int rt_time = 0; //time before retriggering, 0 = no retrig
     
+=======
+    int hold; //JC hold time for trapezoid envelope
+
+>>>>>>> Stashed changes
     void DrawIndicator() {
         int a_x = Proportion(attack, HEM_ADEG_MAX_VALUE, 31);
         int d_x = a_x + Proportion(decay, HEM_ADEG_MAX_VALUE, 31);
